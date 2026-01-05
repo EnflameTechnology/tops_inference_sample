@@ -11,6 +11,7 @@ add_executable(yolov5s yolov5.cpp
 
 target_include_directories(yolov5s
     PRIVATE
-    /usr/include/TopsInference/)
+    /usr/include/TopsInference/
+    /opt/tops/include/)
 
 target_link_libraries(yolov5s ${TOPS_LIBS} stdc++fs)

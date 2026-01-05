@@ -1,76 +1,11 @@
-
-## Table of Content
-- [Table of Content](#table-of-content)
-- [Directory Structure](#directory-structure)
-- [Introduction](#introduction)
-- [Performances](#performances)
-- [Build and Run](#build-and-run)
-- [Note](#note)
-
-
-## Directory Structure
-
 ``` bash
-|-- doc # image for README
-|-- CMakeLists.txt # The CMake file.
-|-- README.md # The readme file..
-|-- chan.hpp # A simple thread communication tool.
-|-- sampleParallelPipeline.cpp # The main code.
-```
-
-## Introduction
-
-This example demonstrates how to perform inference on two models in parallel in GCU. You can refer to another example (`sampleSimpleSerialPipeline`) to see how the serial method works.
-
-To run this example, you need to download two models, `resnet50` and `yolov5s`, from the modezoo of GCU.
-
-This example constructs a simple architecture that allows two models to run in parallel:
-
-`yolov5s` continuously `detects` bounding boxes from the image and sends them to a queue. 
-
-`resnet50` obtains the corresponding image area of the bounding box from the queue and then performs `recognition`. In other words, `detection` and `recognition` are running in parallel.
-
-Specifically, this example implements a semantic similar to the `chan` in the `Go language`, allowing two threads to use this `channel` for data transmission (`chan.hpp`).
-
-## Performances
-
-This example provides an [easy profiler](https://github.com/yse/easy_profiler) approach to evaluate the performance of parallel running. You can install the relevant dependencies and enable the `PROFILE` macro definition in the building stage.
-
-After successfully compiling and running, a `result.prof` file will be generated. By opening it with the easy profiler tool, we can see a timeline graph as below: 
-
-![timeline](./doc/timeline.png)
-
-Our main focus is on whether the inferences are scheduled tightly enough. The following shows the call density of `detection` and `recognition` respectively. The denser the bar chart block, the better the performance:
-
-![det](./doc/det.png)
-![cls](./doc/cls.png)
-
-
-
-## Build and Run
-You can build this example using cmake:
-``` bash
-
-mkdir build && cd build && cmake ../
-
-```
-
-Alternatively, you can just use a long compiling command such as:
-
-``` bash
-
-g++  -I/usr/include/TopsInference  -Wall  -O3 -Werror -Wno-sign-compare -std=c++17 -L/usr/lib -L/usr/local/lib/ -lTopsInference -lpthread -ldl -Wl,-fuse-ld=gold -o ./sampleParallelPipeline sampleParallelPipeline.cpp
-
-```
-
-The complete example runs as follows:
-
-``` bash
-## Install Topsinference & TopsSDK (If you already installed, just jump this step)
+## Install Topsinference & TopsSDK
 dpkg -i <SDKPATH>/framework/tops-inference_<version>_<arch>_internal.deb 
 dpkg -i <SDKPATH>/sdk/tops-sdk_<version>_<arch>_internal.deb 
 
-#build:
+#build with one command line:
+g++  -I/usr/include/TopsInference -I/usr/include/dtu/libprofile -I/usr/include/dtu -Wall  -O3 -Werror -Wno-sign-compare -std=c++17 -L/usr/lib -L/usr/local/lib/ -lTopsInference -lpthread -ldl -Wl,-fuse-ld=gold -o ./sampleParallelPipeline sampleParallelPipeline.cpp
+#or using cmake:
 mkdir build && cd build && cmake ../
 
 # Usage: sampleParallelPipeline [options...]
@@ -132,8 +67,3 @@ python3.6 gendata.py
 # [INFO] running time: 51 seconds
 
 ```
-
-## Note
-The allocation of `vg` is sensitive, because the differential average inference time between the two models has a gap. 
-
-The input `shape` parameter, such as `--det_shape`, must meet the definition of the model file `--cls_modelpath`. In addition, the `buffersize` parameter ensures that it does not exceed the memory limit of GCU. Please refer to the relevant GCU documentation for specific values.

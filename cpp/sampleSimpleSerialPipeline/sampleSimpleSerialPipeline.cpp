@@ -1,22 +1,10 @@
-/*=======================================================================
- * Copyright 2020-2023 Enflame. All Rights Reserved.
- *
- *Licensed under the Apache License, Version 2.0 (the "License");
- *you may not use this file except in compliance with the License.
- *You may obtain a copy of the License at
- *
- *http://www.apache.org/licenses/LICENSE-2.0
- *
- *Unless required by applicable law or agreed to in writing, software
- *distributed under the License is distributed on an "AS IS" BASIS,
- *WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *See the License for the specific language governing permissions and
- *limitations under the License.
- *=======================================================================
+/*
+ * Copyright 2022 Enflame. All Rights Reserved.
  */
 
-#include "arg.hpp"
 #include <TopsInference/TopsInferRuntime.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <algorithm>
 #include <array>
 #include <cassert>
@@ -30,31 +18,41 @@
 #include <memory>
 #include <regex>
 #include <string>
-#include <sys/stat.h>
-#include <sys/types.h>
 #include <vector>
+#include "arg.hpp"
+#include "signal.h"
+#include "../utils/tops_utils.h"
 
-template <typename T> struct Mat {
+#define ENFLAEM_TIF_CHECK(_expr) \
+    do {                                                                         \
+        if (TopsInference::TIFStatus::TIF_SUCCESS != _expr) {                                   \
+            fprintf(stderr, "EnFlame TopsInference ERROR : %d @ %s:%d\n", _expr, __FILE__, __LINE__);\
+            raise(SIGUSR1);                                                                \
+        }                                                                          \
+    } while (0)
+
+template <typename T>
+struct Mat {
   Mat(int ch, int w, int h) {
     shape = {ch, h, w};
     data = new T[size()];
   }
-  explicit Mat(const std::array<int, 3> &sp) {
+  explicit Mat(const std::array<int, 3>& sp) {
     shape = sp;
     data = new T[size()];
   }
   ~Mat() { delete data; }
   size_t size() { return shape[0] * shape[1] * shape[2]; }
-  T &operator[](size_t idx) { return data[idx]; }
-  const T *ptr(size_t idx) const { return data + idx; }
-  T *ptr(size_t idx) { return data + idx; }
-  T *data;
+  T& operator[](size_t idx) { return data[idx]; }
+  const T* ptr(size_t idx) const { return data + idx; }
+  T* ptr(size_t idx) { return data + idx; }
+  T* data;
   std::array<int, 3> shape;
 };
 
 template <typename T0, typename T1>
-void resize(const T0 *pIn, T1 *pOut, int widthIn, int heightIn, int widthOut,
-            int heightOut, const std::function<T1(T0)> &func) {
+void resize(const T0* pIn, T1* pOut, int widthIn, int heightIn, int widthOut,
+            int heightOut, const std::function<T1(T0)>& func) {
   for (int i = 0; i < heightOut; i++) {
     int i_in = i * heightIn / heightOut;
     for (int j = 0; j < widthOut; j++) {
@@ -83,7 +81,7 @@ void batch(Iterator begin, Iterator end, Distance k, Func f) {
 using Box = std::array<float, 6>;
 using Boxes = std::vector<Box>;
 
-static std::unique_ptr<Boxes> nms(const Boxes &pred, float thresh) {
+static std::unique_ptr<Boxes> nms(const Boxes& pred, float thresh) {
   auto nms_pred = std::make_unique<Boxes>();
   std::vector<float> x1(pred.size());
   std::vector<float> y1(pred.size());
@@ -146,9 +144,9 @@ static std::unique_ptr<Boxes> nms(const Boxes &pred, float thresh) {
 static int k_step;
 static int k_proposal_count;
 static int k_kn_classes;
-static std::unique_ptr<Boxes>
-yolov5_postprocess(const float *p, const std::array<int, 3> &rawshape,
-                   const std::array<int, 3> &shape) {
+static std::unique_ptr<Boxes> yolov5_postprocess(
+    const float* p, const std::array<int, 3>& rawshape,
+    const std::array<int, 3>& shape) {
   auto boxes = std::make_unique<Boxes>();
   const int step = k_step;
   const int proposal_count = k_proposal_count;
@@ -185,9 +183,9 @@ yolov5_postprocess(const float *p, const std::array<int, 3> &rawshape,
     p += step;
   }
 
-  for (const auto &v : cls_of_boxes) {
+  for (const auto& v : cls_of_boxes) {
     auto nms_v = nms(v.second, nms_threshold);
-    for (const auto &nv : *nms_v) {
+    for (const auto& nv : *nms_v) {
       boxes->push_back(nv);
     }
   }
@@ -195,7 +193,7 @@ yolov5_postprocess(const float *p, const std::array<int, 3> &rawshape,
   return boxes;
 }
 
-int main(int argc, const char **targv) {
+int main(int argc, const char** targv) {
   arg::ArgParser argparser("sampleSimpleSerialPipeline",
                            "This program is a simple demonstration about dtu "
                            "serial pipeline execution.");
@@ -243,8 +241,8 @@ int main(int argc, const char **targv) {
   auto det_buffersize = argparser.get<uint32_t>("det_buffersize");
   auto cls_buffersize = argparser.get<uint32_t>("cls_buffersize");
 
-  auto fcheck = [](const std::string &path,
-                   const std::string &postfix = "") -> bool {
+  auto fcheck = [](const std::string& path,
+                   const std::string& postfix = "") -> bool {
     if (!postfix.empty()) {
       if (path.substr(path.find_last_of('.') + 1) != postfix) {
         std::cerr << "\033[1;31m  file \"" << path << "\" does not have \"."
@@ -266,7 +264,7 @@ int main(int argc, const char **targv) {
     return -1;
   }
 
-  auto parseshape = [](const std::string &rawstr) -> std::array<int, 3> {
+  auto parseshape = [](const std::string& rawstr) -> std::array<int, 3> {
     std::regex ws_re(",");
     std::vector<std::string> shapestrs(
         std::sregex_token_iterator(rawstr.begin(), rawstr.end(), ws_re, -1),
@@ -294,15 +292,15 @@ int main(int argc, const char **targv) {
     std::ifstream rawfile(raw_imagepath,
                           std::ios_base::in | std::ios_base::binary);
     if (rawfile.is_open()) {
-      rawfile.read(reinterpret_cast<char *>(raw.ptr(0)), raw.size());
+      rawfile.read(reinterpret_cast<char*>(raw.ptr(0)), raw.size());
       rawfile.close();
     }
   }
 
   auto resizeraw =
-      [](const Mat<uint8_t> &raw,
-         const std::vector<std::function<float(uint8_t)>> &preprocess,
-         const std::array<int, 3> &outshape) -> std::unique_ptr<Mat<float>> {
+      [](const Mat<uint8_t>& raw,
+         const std::vector<std::function<float(uint8_t)>>& preprocess,
+         const std::array<int, 3>& outshape) -> std::unique_ptr<Mat<float>> {
     assert(outshape[0] == raw.shape[0] && outshape[0] > 0 && outshape[1] > 0 &&
            outshape[2] > 0 && "resize output shape not valid");
     int stridein = raw.shape[1] * raw.shape[2];
@@ -316,8 +314,8 @@ int main(int argc, const char **targv) {
     return resizedmat;
   };
 
-  auto crop = [](const Mat<uint8_t> &raw,
-                 const Box &box) -> std::unique_ptr<Mat<uint8_t>> {
+  auto crop = [](const Mat<uint8_t>& raw,
+                 const Box& box) -> std::unique_ptr<Mat<uint8_t>> {
     int x0 = std::min(std::max(0, static_cast<int>(box[0])), raw.shape[2] - 1);
     int y0 = std::min(std::max(0, static_cast<int>(box[1])), raw.shape[1] - 1);
     int x1 = std::min(std::max(0, static_cast<int>(box[2])), raw.shape[2] - 1);
@@ -329,8 +327,8 @@ int main(int argc, const char **targv) {
     int strideout = outshape[1] * outshape[2];
 
     for (int i = 0; i < raw.shape[0]; i++) {
-      const uint8_t *ip = raw.ptr(i * stridein);
-      uint8_t *op = cropedmat->ptr(i * strideout);
+      const uint8_t* ip = raw.ptr(i * stridein);
+      uint8_t* op = cropedmat->ptr(i * strideout);
       for (int h = y0; h < y1; h++)
         for (int w = x0; w < x1; w++) {
           op[outshape[2] * (h - y0) + (w - x0)] = ip[raw.shape[2] * h + w];
@@ -339,19 +337,21 @@ int main(int argc, const char **targv) {
     return cropedmat;
   };
 
-  auto det_preprocess = [](uint8_t a) -> float { return a / 255.0; };
+  auto det_preprocess = [](uint8_t a) -> float {
+    return a / 255.0;
+  };
   //[0.485, 0.456, 0.406], [0.229, 0.224, 0.225]
   auto cls_preprocess_t = [](float mean, float std, uint8_t a) -> float {
     return (a / 255.0 - mean) / std;
   };
   const std::vector<std::function<float(uint8_t)>> cls_preprocess_channels = {
-      [cls_preprocess_t](auto &&PH1) {
+      [cls_preprocess_t](auto&& PH1) {
         return cls_preprocess_t(0.485, 0.229, std::forward<decltype(PH1)>(PH1));
       },
-      [cls_preprocess_t](auto &&PH1) {
+      [cls_preprocess_t](auto&& PH1) {
         return cls_preprocess_t(0.456, 0.224, std::forward<decltype(PH1)>(PH1));
       },
-      [cls_preprocess_t](auto &&PH1) {
+      [cls_preprocess_t](auto&& PH1) {
         return cls_preprocess_t(0.406, 0.225, std::forward<decltype(PH1)>(PH1));
       },
 
@@ -359,21 +359,21 @@ int main(int argc, const char **targv) {
   auto det_input = resizeraw(
       raw, {det_preprocess, det_preprocess, det_preprocess}, det_shape);
 
-  auto createngine = [](const std::string &modelpath,
-                        const std::string &inputnames,
-                        const std::string &inputshapes) {
+  auto createngine = [](const std::string& modelpath,
+                        const std::string& inputnames,
+                        const std::string& inputshapes) {
     std::string execpath =
-        modelpath.substr(0, modelpath.find_last_of('.')) + ".exec";
-    TopsInference::IParser *parser =
+        modelpath.substr(0, modelpath.find_last_of('.')) + ".engine";
+    TopsInference::IParser* parser =
         TopsInference::create_parser(TopsInference::TIF_ONNX);
-    TopsInference::IOptimizer *optimizer = TopsInference::create_optimizer();
+    TopsInference::IOptimizer* optimizer = TopsInference::create_optimizer();
     parser->setInputNames(inputnames.c_str());
     parser->setInputShapes(inputshapes.c_str());
-    TopsInference::INetwork *network = parser->readModel(modelpath.c_str());
-    TopsInference::IOptimizerConfig *optimizer_config = optimizer->getConfig();
+    TopsInference::INetwork* network = parser->readModel(modelpath.c_str());
+    TopsInference::IOptimizerConfig* optimizer_config = optimizer->getConfig();
     optimizer_config->setBuildFlag(
         TopsInference::BuildFlag::TIF_KTYPE_MIX_FP16);
-    auto *engine = optimizer->build(network);
+    auto* engine = optimizer->build(network);
     engine->saveExecutable(execpath.c_str());
     std::cout << "[INFO] save engine file: " << execpath << '\n';
     TopsInference::release_parser(parser);
@@ -381,10 +381,10 @@ int main(int argc, const char **targv) {
     TopsInference::release_engine(engine);
   };
 
-  auto loadengine = [](const std::string &execpath, const uint32_t cachesize)
-      -> std::tuple<TopsInference::IEngine *,
+  auto loadengine = [](const std::string& execpath, const uint32_t cachesize)
+      -> std::tuple<TopsInference::IEngine*,
                     std::vector<std::unique_ptr<std::vector<float>>>> {
-    TopsInference::IEngine *engine = nullptr;
+    TopsInference::IEngine* engine = nullptr;
     engine = TopsInference::create_engine();
     engine->loadExecutable(execpath.c_str());
     std::cout << "[INFO] load engine file: " << execpath << '\n';
@@ -408,7 +408,7 @@ int main(int argc, const char **targv) {
               cls_modelpath, cls_inputname, cls_inputshape, det_shape,
               cls_shape, rawshape, resizeraw, &raw, cls_preprocess_channels,
               crop, createngine, det_buffersize, cls_buffersize,
-              fcheck](const uint32_t vg, float *det_input, int times = 1) {
+              fcheck](const uint32_t vg, float* det_input, int times = 1) {
     {
       std::lock_guard<std::mutex> lock(printing);
       std::cout << "[INFO] used vg: " << vg << "\n";
@@ -418,13 +418,13 @@ int main(int argc, const char **targv) {
       clusterids.push_back(i);
     }
 
-    auto *handle =
+    auto* handle =
         TopsInference::set_device(0, clusterids.data(), clusterids.size());
     assert(handle != nullptr && "[ERROR] set device failed!");
     std::string det_execpath =
-        det_modelpath.substr(0, det_modelpath.find_last_of('.')) + ".exec";
+        det_modelpath.substr(0, det_modelpath.find_last_of('.')) + ".engine";
     std::string cls_execpath =
-        cls_modelpath.substr(0, cls_modelpath.find_last_of('.')) + ".exec";
+        cls_modelpath.substr(0, cls_modelpath.find_last_of('.')) + ".engine";
     {
 
       std::lock_guard<std::mutex> lock(creating_model);
@@ -443,7 +443,7 @@ int main(int argc, const char **targv) {
     auto det_engine_and_outputs = loadengine(det_execpath, det_buffersize);
     auto cls_engine_and_outputs = loadengine(cls_execpath, cls_buffersize);
 
-    auto *det_engine = std::get<0>(det_engine_and_outputs);
+    auto* det_engine = std::get<0>(det_engine_and_outputs);
 
     {
       assert(det_engine->getOutputNum() > 0 && "number of outputs not valid!");
@@ -453,7 +453,7 @@ int main(int argc, const char **targv) {
       k_step = parsedshape.dimension[2];
     }
 
-    auto *cls_engine = std::get<0>(cls_engine_and_outputs);
+    auto* cls_engine = std::get<0>(cls_engine_and_outputs);
 
     {
       assert(cls_engine->getOutputNum() > 0 && "number of outputs not valid!");
@@ -462,18 +462,18 @@ int main(int argc, const char **targv) {
       k_kn_classes = parsedshape.dimension[1];
     }
 
-    const auto &det_outputsraw = std::get<1>(det_engine_and_outputs);
-    const auto &cls_outputsraw = std::get<1>(cls_engine_and_outputs);
+    const auto& det_outputsraw = std::get<1>(det_engine_and_outputs);
+    const auto& cls_outputsraw = std::get<1>(cls_engine_and_outputs);
 
-    std::vector<void *> det_outputs;
+    std::vector<void*> det_outputs;
     det_outputs.reserve((det_outputsraw.size()));
-    for (const auto &p : det_outputsraw) {
+    for (const auto& p : det_outputsraw) {
       det_outputs.emplace_back(p->data());
     }
 
-    std::vector<void *> cls_outputs;
+    std::vector<void*> cls_outputs;
     cls_outputs.reserve((cls_outputsraw.size()));
-    for (const auto &p : cls_outputsraw) {
+    for (const auto& p : cls_outputsraw) {
       cls_outputs.emplace_back(p->data());
     }
 
@@ -483,25 +483,46 @@ int main(int argc, const char **targv) {
     std::vector<float> det_inputsdata(det_input_singlesize * det_buffersize, 0);
     std::vector<float> cls_inputsdata(cls_input_singlesize * cls_buffersize, 0);
 
-    // warmup
+    //warmup
     {
 
       {
-        void *inputs[] = {det_inputsdata.data()};
+        void* inputs[] = {det_inputsdata.data()};
 
-        det_engine->run_with_batch(
-            det_buffersize, inputs, det_outputs.data(),
-            TopsInference::BufferType::TIF_ENGINE_RSC_IN_HOST_OUT_HOST);
+        //! inference with runWithBatch
+        // det_engine->runWithBatch(
+        //     det_buffersize, inputs, det_outputs.data(),
+        //     TopsInference::BufferType::TIF_ENGINE_RSC_IN_HOST_OUT_HOST);
+
+        //! inference with runV2
+        auto det_input_tensor_list = get_input_tensor_list(det_engine, (float **)inputs,
+                                                           det_buffersize); 
+        auto det_output_tensor_list = get_output_tensor_list(det_engine, det_outputs.data(),
+                                                             det_buffersize);
+        auto ret = det_engine->runV2(
+            det_input_tensor_list.data(), det_output_tensor_list.data()); 
+        ENFLAEM_TIF_CHECK(ret);
       }
       {
-        void *inputs[] = {cls_inputsdata.data()};
-        cls_engine->run_with_batch(
-            cls_buffersize, inputs, cls_outputs.data(),
-            TopsInference::BufferType::TIF_ENGINE_RSC_IN_HOST_OUT_HOST);
+        void* inputs[] = {cls_inputsdata.data()};
+
+        //! inference with runWithBatch
+        // cls_engine->runWithBatch(
+        //     cls_buffersize, inputs, cls_outputs.data(),
+        //     TopsInference::BufferType::TIF_ENGINE_RSC_IN_HOST_OUT_HOST);
+        
+        //! inference with runV2
+        auto cls_input_tensor_list = get_input_tensor_list(cls_engine, (float **)inputs,
+                                                           cls_buffersize);
+        auto cls_output_tensor_list = get_output_tensor_list(cls_engine, cls_outputs.data(),
+                                                             cls_buffersize);
+        auto ret = cls_engine->runV2(
+            cls_input_tensor_list.data(), cls_output_tensor_list.data());
+        ENFLAEM_TIF_CHECK(ret);
       }
     }
 
-    std::vector<float *> inputs_rawdata(times, det_input);
+    std::vector<float*> inputs_rawdata(times, det_input);
 
     uint32_t imgidx = 0;
     auto t0 = std::time(nullptr);
@@ -521,18 +542,28 @@ int main(int argc, const char **targv) {
                     offset += det_input_singlesize;
                   });
 
-              std::vector<void *> inputs = {det_inputsdata.data()};
+              std::vector<void*> inputs = {det_inputsdata.data()};
 
-              det_engine->run_with_batch(
-                  size, inputs.data(), det_outputs.data(),
-                  TopsInference::BufferType::TIF_ENGINE_RSC_IN_HOST_OUT_HOST);
+              //! inference with runWithBatch
+              // det_engine->runWithBatch(
+              //     size, inputs.data(), det_outputs.data(),
+              //     TopsInference::BufferType::TIF_ENGINE_RSC_IN_HOST_OUT_HOST);
+              
+              //! inference with runV2
+              auto det_input_tensor_list = get_input_tensor_list(det_engine, (float **)inputs.data(),
+                                                                 size);
+              auto det_output_tensor_list = get_output_tensor_list(det_engine, det_outputs.data(),
+                                                                   size);
+              auto ret = det_engine->runV2(
+                  det_input_tensor_list.data(), det_output_tensor_list.data());
+              ENFLAEM_TIF_CHECK(ret);
             }
 
             assert(det_outputsraw[0]->size() >= size * det_output_singlesize &&
                    "size not valid");
 
             using ClsData = struct ClsData {
-              ClsData(std::unique_ptr<Mat<float>> &&a, Box b, uint32_t c)
+              ClsData(std::unique_ptr<Mat<float>>&& a, Box b, uint32_t c)
                   : data(std::move(a)), bb(b), imgidx(c) {}
               std::unique_ptr<Mat<float>> data;
               Box bb;
@@ -543,11 +574,11 @@ int main(int argc, const char **targv) {
                  i++, offset += det_output_singlesize) {
               auto det_output = yolov5_postprocess(
                   det_outputsraw[0]->data() + offset, rawshape, det_shape);
-              for (const auto &out : *det_output) {
-                clsdatas.emplace_back(resizeraw(*crop(raw, out),
-                                                cls_preprocess_channels,
-                                                cls_shape),
-                                      out, static_cast<uint32_t>(imgidx + i));
+              for (const auto& out : *det_output) {
+                clsdatas.emplace_back(
+                    resizeraw(*crop(raw, out), cls_preprocess_channels,
+                              cls_shape),
+                    out, static_cast<uint32_t>(imgidx + i));
               }
             }
 
@@ -555,20 +586,30 @@ int main(int argc, const char **targv) {
 
             {
               uint64_t offset = 0;
-              for (const auto &clsdata : clsdatas) {
+              for (const auto& clsdata : clsdatas) {
                 memcpy(cls_inputsdata.data() + offset, clsdata.data->ptr(0),
                        cls_input_singlesize * sizeof(float));
                 offset += cls_input_singlesize;
               }
-              std::vector<void *> inputs = {cls_inputsdata.data()};
+              std::vector<void*> inputs = {cls_inputsdata.data()};
 
-              cls_engine->run_with_batch(
-                  clsdatas.size(), inputs.data(), cls_outputs.data(),
-                  TopsInference::BufferType::TIF_ENGINE_RSC_IN_HOST_OUT_HOST);
+              //! inference with runWithBatch
+              // cls_engine->runWithBatch(
+              //     clsdatas.size(), inputs.data(), cls_outputs.data(),
+              //     TopsInference::BufferType::TIF_ENGINE_RSC_IN_HOST_OUT_HOST);
+              
+              //! inference with runV2
+              auto cls_input_tensor_list = get_input_tensor_list(cls_engine, (float **)inputs.data(),
+                                                                 clsdatas.size());
+              auto cls_output_tensor_list = get_output_tensor_list(cls_engine, cls_outputs.data(),
+                                                                   clsdatas.size());
+              auto ret = cls_engine->runV2(
+                  cls_input_tensor_list.data(), cls_output_tensor_list.data());
+              ENFLAEM_TIF_CHECK(ret);
 
               offset = 0;
-              for (const auto &r : clsdatas) {
-                auto *p = static_cast<float *>(cls_outputs[0]) + offset;
+              for (const auto& r : clsdatas) {
+                auto* p = static_cast<float*>(cls_outputs[0]) + offset;
                 int cls_maxidx = -1;
                 float cls_maxvalue = 0.F;
                 for (int i = 0; i < 1000; i++) {

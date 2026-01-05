@@ -1,18 +1,5 @@
-/*=======================================================================
- * Copyright 2020-2023 Enflame. All Rights Reserved.
- *
- *Licensed under the Apache License, Version 2.0 (the "License");
- *you may not use this file except in compliance with the License.
- *You may obtain a copy of the License at
- *
- *http://www.apache.org/licenses/LICENSE-2.0
- *
- *Unless required by applicable law or agreed to in writing, software
- *distributed under the License is distributed on an "AS IS" BASIS,
- *WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *See the License for the specific language governing permissions and
- *limitations under the License.
- *=======================================================================
+/*
+ * Copyright 2022 Enflame. All Rights Reserved.
  */
 
 #ifndef __CHANNEL_HPP__
@@ -23,8 +10,9 @@
 #include <mutex>
 #include <vector>
 
-template <typename T> class Queue {
-public:
+template <typename T>
+class Queue {
+ public:
   explicit Queue(int tsize) {
     capacity_ = tsize;
     rear_ = capacity_ - 1;
@@ -39,7 +27,7 @@ public:
     std::unique_lock<std::mutex> the_lock(m_mutex_);
     return size_ == 0;
   }
-  void push(T &&v) {
+  void push(T&& v) {
     std::unique_lock<std::mutex> the_lock(m_mutex_);
     assert(size_ < capacity_ && "queue empty!");
     rear_ = (rear_ + 1) % capacity_;
@@ -55,22 +43,22 @@ public:
     return item;
   }
 
-private:
+ private:
   int front_, rear_, size_;
   unsigned capacity_;
   std::vector<T> array_;
   std::mutex m_mutex_;
 };
 
-// This class implements the gorounte channel in golang:
-// https://gobyexample.com/channels
-template <class T> class Chan {
-public:
+//This class implements the gorounte channel in golang: https://gobyexample.com/channels
+template <class T>
+class Chan {
+ public:
   using type = T;
   explicit Chan(unsigned int queue_size = 32) : m_vals_(queue_size) {}
   virtual ~Chan() = default;
-  Chan &operator=(const Chan &other) = delete;
-  Chan(const Chan &other) = delete;
+  Chan& operator=(const Chan& other) = delete;
+  Chan(const Chan& other) = delete;
 
   T receive() {
     std::unique_lock<std::mutex> the_lock(m_mutex_);
@@ -82,7 +70,7 @@ public:
     m_cv_.notify_all();
     return a;
   };
-  void send(T &&val) {
+  void send(T&& val) {
     std::unique_lock<std::mutex> the_lock(m_mutex_);
     m_cv_.wait(the_lock, [this] { return !(m_vals_.full()); });
     m_vals_.push(std::move(val));
@@ -99,7 +87,7 @@ public:
     return m_vals_.empty() && m_isclose_;
   }
 
-protected:
+ protected:
   Queue<T> m_vals_;
   std::mutex m_mutex_;
   std::mutex m_check_close_mutex_;

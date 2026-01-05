@@ -1,20 +1,3 @@
-/*=======================================================================
- * Copyright 2020-2023 Enflame. All Rights Reserved.
- *
- *Licensed under the Apache License, Version 2.0 (the "License");
- *you may not use this file except in compliance with the License.
- *You may obtain a copy of the License at
- *
- *http://www.apache.org/licenses/LICENSE-2.0
- *
- *Unless required by applicable law or agreed to in writing, software
- *distributed under the License is distributed on an "AS IS" BASIS,
- *WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *See the License for the specific language governing permissions and
- *limitations under the License.
- *=======================================================================
- */
-
 #include "tops_utils.h"
 #include "TopsInference/TopsInferRuntime.h"
 
@@ -24,13 +7,13 @@
 #include <vector>
 
 #if __has_include(<filesystem>)
-#include <filesystem>
-namespace fs = std::filesystem;
+  #include <filesystem>
+  namespace fs = std::filesystem;
 #elif __has_include(<experimental/filesystem>)
-#include <experimental/filesystem>
-namespace fs = std::experimental::filesystem;
+  #include <experimental/filesystem>
+  namespace fs = std::experimental::filesystem;
 #else
-error "Missing the <filesystem> header."
+  error "Missing the <filesystem> header."
 #endif
 
 int get_dtype_size(TopsInference::DataType dtype) {
@@ -90,7 +73,7 @@ std::string engine_name_construct(const char *onnx_path,
   if (batchsize > 0) {
     str_stream << "-bs" << batchsize;
   }
-  str_stream << ".exec";
+  str_stream << ".engine";
   std::string exec_path = str_stream.str();
   std::cout << "engine path: " << exec_path << '\n';
   return exec_path;
@@ -155,8 +138,8 @@ void free_host_memory(std::vector<void *> &datum) {
 }
 
 bool getEngineIOInfo(std::string &exec_path,
-                     std::vector<ShapeInfo> &inputs_shape_info,
-                     std::vector<ShapeInfo> &outputs_shape_info) {
+                        std::vector<ShapeInfo> &inputs_shape_info,
+                        std::vector<ShapeInfo> &outputs_shape_info) {
   if (access(exec_path.c_str(), 0) == -1) {
     return false;
   }
@@ -211,4 +194,41 @@ loadOrCreateEngine(const char *exec_path, const char *onnx_path,
             << "[ERROR] fail to load onnx: " << onnx_path << std::endl
             << std::endl;
   return NULL;
+}
+
+std::vector<TopsInference::TensorPtr_t> get_input_tensor_list(
+    TopsInference::IEngine *engine, float **inputs, int batch_size) {
+  std::vector<TopsInference::TensorPtr_t> input_tensor_list;
+  int num = engine->getInputNum();
+  for (int i = 0; i < num; i++) {
+    TopsInference::TensorPtr_t sub_input = TopsInference::create_tensor();
+    sub_input->setOpaque(reinterpret_cast<void *>(inputs[i]));
+    sub_input->setDeviceType(TopsInference::DataDeviceType::HOST);
+    TopsInference::Dims input_shape = engine->getInputShape(i);
+    input_shape.dimension[0] = batch_size;
+    sub_input->setDims(input_shape);
+    input_tensor_list.emplace_back((TopsInference::TensorPtr_t)sub_input);
+  }
+  return input_tensor_list;
+}
+
+std::vector<TopsInference::TensorPtr_t> get_output_tensor_list(
+    TopsInference::IEngine *engine, void **outputs, int batch_size) {
+  std::vector<TopsInference::TensorPtr_t> output_tensor_list;
+  int num = engine->getOutputNum();
+  for (int i = 0; i < num; i++) {
+    TopsInference::Dims max_shape = engine->getMaxOutputShape(i);
+    int64_t element_size = 1;
+    max_shape.dimension[0] = batch_size;
+    for (size_t j = 0; j < max_shape.nbDims; j++) {
+      element_size *= max_shape.dimension[j];
+    }
+    void *out = outputs[i];
+    TopsInference::TensorPtr_t sub_output = TopsInference::create_tensor();
+    sub_output->setOpaque(reinterpret_cast<void *>(out));
+    sub_output->setDims(max_shape);
+    sub_output->setDeviceType(TopsInference::DataDeviceType::HOST);
+    output_tensor_list.emplace_back((TopsInference::TensorPtr_t)sub_output);
+  }
+  return output_tensor_list;
 }

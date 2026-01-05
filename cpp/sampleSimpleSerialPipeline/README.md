@@ -1,50 +1,12 @@
-## Table of Content
-- [Table of Content](#table-of-content)
-- [Directory Structure](#directory-structure)
-- [Introduction](#introduction)
-- [Build and Run](#build-and-run)
-- [Note](#note)
-
-
-## Directory Structure
-``` bash
-|-- CMakeLists.txt # The CMake file.
-|-- README.md # The readme file..
-|-- sampleSimpleSerialPipeline.cpp # The main code.
-```
-## Introduction
-The main purpose of this example is to demonstrate how to perform inference using two models in GCU. The two models run sequentially, and you can refer to another example (sampleParallelPipeline) for parallel execution.
-
-To run this example, you need to download two models, `resnet50` and `yolov5s`, from the `modelzoo` of GCU.
-
-The operation of this example is straightforward. It reads the ONNX format models, parses them, and compiles them into executable binary files using GCU's graph compilation engine. Then it reads `input.data` for inference.
-
-Specifically, the `yolov5s` model runs first, obtaining the coordinates of some target bounding boxes in the image. These bounding box regions are then cropped and resized to the input size of the `resnet50` model. Finally, the `resnet50` model performs inference to obtain the specific class of target at the bounding box location.
-
-
-## Build and Run
-You can build this example using cmake:
 ``` bash
 
-mkdir build && cd build && cmake ../
-
-```
-
-Alternatively, you can just use a long compiling command such as:
-``` bash
-
-g++  -I/usr/include/TopsInference  -Wall  -O3 -Werror -Wno-sign-compare -std=c++17 -L/usr/lib -L/usr/local/lib/ -lTopsInference -lpthread -ldl -Wl,-fuse-ld=gold -o ./sampleSimpleSerialPipeline sampleSimpleSerialPipeline.cpp
-
-```
-
-The complete example runs as follows:
-``` bash
-
-## Install Topsinference && TopsSDK (If you already installed, just jump this step)
+## Install Topsinference & TopsSDK
 dpkg -i <SDKPATH>/framework/tops-inference_<version>_<arch>_internal.deb 
 dpkg -i <SDKPATH>/sdk/tops-sdk_<version>_<arch>_internal.deb 
 
-##build:
+#build with one command line:
+g++  -I/usr/include/TopsInference -I/usr/include/dtu/libprofile -I/usr/include/dtu -Wall  -O3 -Werror -Wno-sign-compare -std=c++17 -L/usr/lib -L/usr/local/lib/ -lTopsInference -lpthread -ldl -Wl,-fuse-ld=gold -o ./sampleSimpleSerialPipeline sampleSimpleSerialPipeline.cpp
+##or using cmake:
 mkdir build && cd build && cmake ../
 
 # Usage: sampleSimpleSerialPipeline [options...]
@@ -105,7 +67,3 @@ python3.6 gendata.py
 # [INFO] running time: 93 seconds
 # DONE
 ```
-
-## Note
-
-The input `shape` parameter, such as `--det_shape`, must meet the definition of the model file `--cls_modelpath`. In addition, the `buffersize` parameter ensures that it does not exceed the memory limit of GCU. Please refer to the relevant GCU documentation for specific values.

@@ -1,18 +1,5 @@
-/*=======================================================================
- * Copyright 2020-2023 Enflame. All Rights Reserved.
- *
- *Licensed under the Apache License, Version 2.0 (the "License");
- *you may not use this file except in compliance with the License.
- *You may obtain a copy of the License at
- *
- *http://www.apache.org/licenses/LICENSE-2.0
- *
- *Unless required by applicable law or agreed to in writing, software
- *distributed under the License is distributed on an "AS IS" BASIS,
- *WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *See the License for the specific language governing permissions and
- *limitations under the License.
- *=======================================================================
+/*
+ * Copyright 2022 Enflame. All Rights Reserved.
  */
 
 #include <TopsInference/TopsInferRuntime.h>
@@ -20,8 +7,8 @@
 #include <easy/details/profiler_colors.h>
 #include <easy/profiler.h>
 #endif
-#include "arg.hpp"
-#include "chan.hpp"
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <algorithm>
 #include <array>
 #include <cassert>
@@ -37,36 +24,48 @@
 #include <memory>
 #include <regex>
 #include <string>
-#include <sys/stat.h>
-#include <sys/types.h>
 #include <tuple>
 #include <utility>
 #include <vector>
+#include "arg.hpp"
+#include "chan.hpp"
+#include "signal.h"
+#include "../utils/tops_utils.h"
 #ifndef PROFILE
 #define EASY_PROFILER_ENABLE
 #define EASY_BLOCK(V)
 #define EASY_END_BLOCK
 #endif
-template <typename T> struct Mat {
+
+#define ENFLAEM_TIF_CHECK(_expr) \
+    do {                                                                         \
+        if (TopsInference::TIFStatus::TIF_SUCCESS != _expr) {                                   \
+            fprintf(stderr, "EnFlame TopsInference ERROR : %d @ %s:%d\n", _expr, __FILE__, __LINE__);\
+            raise(SIGUSR1);                                                                \
+        }                                                                          \
+    } while (0)
+
+template <typename T>
+struct Mat {
   Mat(int ch, int w, int h) {
     shape = {ch, h, w};
     data.resize(size());
   }
-  explicit Mat(const std::array<int, 3> &sp) {
+  explicit Mat(const std::array<int, 3>& sp) {
     shape = sp;
     data.resize(size());
   }
   size_t size() { return shape[0] * shape[1] * shape[2]; }
-  T &operator[](size_t idx) { return data[idx]; }
-  const T *ptr(size_t idx) const { return data.data() + idx; }
-  T *ptr(size_t idx) { return data.data() + idx; }
+  T& operator[](size_t idx) { return data[idx]; }
+  const T* ptr(size_t idx) const { return data.data() + idx; }
+  T* ptr(size_t idx) { return data.data() + idx; }
   std::vector<T> data;
   std::array<int, 3> shape;
 };
 
 template <typename T0, typename T1>
-void resize(const T0 *pIn, T1 *pOut, int widthIn, int heightIn, int widthOut,
-            int heightOut, const std::function<T1(T0)> &func) {
+void resize(const T0* pIn, T1* pOut, int widthIn, int heightIn, int widthOut,
+            int heightOut, const std::function<T1(T0)>& func) {
   for (int i = 0; i < heightOut; i++) {
     int i_in = i * heightIn / heightOut;
     for (int j = 0; j < widthOut; j++) {
@@ -96,7 +95,7 @@ int batch(Iterator begin, Iterator end, Distance k, Func f) {
 using Box = std::array<float, 6>;
 using Boxes = std::vector<Box>;
 
-static std::unique_ptr<Boxes> nms(const Boxes &pred, float thresh) {
+static std::unique_ptr<Boxes> nms(const Boxes& pred, float thresh) {
   auto nms_pred = std::make_unique<Boxes>();
   std::vector<float> x1(pred.size());
   std::vector<float> y1(pred.size());
@@ -159,9 +158,9 @@ static std::unique_ptr<Boxes> nms(const Boxes &pred, float thresh) {
 static int k_step = 0;
 static int k_proposal_count = 0;
 static int k_kn_classes = 0;
-static std::unique_ptr<Boxes>
-yolov5_postprocess(const float *p, const std::array<int, 3> &rawshape,
-                   const std::array<int, 3> &inputshape) {
+static std::unique_ptr<Boxes> yolov5_postprocess(
+    const float* p, const std::array<int, 3>& rawshape,
+    const std::array<int, 3>& inputshape) {
   auto boxes = std::make_unique<Boxes>();
 
   const float score_threshold = 0.5;
@@ -197,9 +196,9 @@ yolov5_postprocess(const float *p, const std::array<int, 3> &rawshape,
     p += k_step;
   }
 
-  for (const auto &v : cls_of_boxes) {
+  for (const auto& v : cls_of_boxes) {
     auto nms_v = nms(v.second, nms_threshold);
-    for (const auto &nv : *nms_v) {
+    for (const auto& nv : *nms_v) {
       boxes->push_back(nv);
     }
   }
@@ -207,7 +206,7 @@ yolov5_postprocess(const float *p, const std::array<int, 3> &rawshape,
   return boxes;
 }
 
-int main(int argc, const char **targv) {
+int main(int argc, const char** targv) {
   EASY_PROFILER_ENABLE;
   arg::ArgParser argparser(
       "sampleParallelPipeline",
@@ -260,21 +259,21 @@ int main(int argc, const char **targv) {
       argparser.get<std::string>("det_inputname"),
       argparser.get<std::string>("cls_inputname")};
 
-  const auto &det_modelpath = modelpathes_and_names[0];
-  const auto &cls_modelpath = modelpathes_and_names[1];
-  const auto &raw_imagepath = modelpathes_and_names[2];
-  const auto &det_inputnames = modelpathes_and_names[3];
-  const auto &cls_inputnames = modelpathes_and_names[4];
+  const auto& det_modelpath = modelpathes_and_names[0];
+  const auto& cls_modelpath = modelpathes_and_names[1];
+  const auto& raw_imagepath = modelpathes_and_names[2];
+  const auto& det_inputnames = modelpathes_and_names[3];
+  const auto& cls_inputnames = modelpathes_and_names[4];
 
   std::array<std::string, 3> strshapes = {
       argparser.get<std::string>("image_shape"),
       argparser.get<std::string>("det_shape"),
       argparser.get<std::string>("cls_shape")};
-  const auto &det_inputshapes = strshapes[1];
-  const auto &cls_inputshapes = strshapes[2];
+  const auto& det_inputshapes = strshapes[1];
+  const auto& cls_inputshapes = strshapes[2];
 
-  auto fcheck = [](const std::string &path,
-                   const std::string &postfix = "") -> bool {
+  auto fcheck = [](const std::string& path,
+                   const std::string& postfix = "") -> bool {
     if (!postfix.empty()) {
       if (path.substr(path.find_last_of('.') + 1) != postfix) {
         std::cerr << "\033[1;31m  file \"" << path << "\" does not have \"."
@@ -293,7 +292,7 @@ int main(int argc, const char **targv) {
 
   if (!std::all_of(modelpathes_and_names.begin(),
                    modelpathes_and_names.begin() + 2,
-                   [&fcheck](const std::string &p) -> bool {
+                   [&fcheck](const std::string& p) -> bool {
                      return fcheck(p, "onnx");
                    }) &&
       !fcheck(*(modelpathes_and_names.begin() + 3), "data")) {
@@ -303,7 +302,7 @@ int main(int argc, const char **targv) {
   std::array<std::array<int, 3>, 3> shapes;
   std::transform(
       strshapes.begin(), strshapes.end(), shapes.begin(),
-      [](const std::string &rawstr) -> std::array<int, 3> {
+      [](const std::string& rawstr) -> std::array<int, 3> {
         std::regex ws_re(",");
         std::vector<std::string> shapestrs(
             std::sregex_token_iterator(rawstr.begin(), rawstr.end(), ws_re, -1),
@@ -322,25 +321,25 @@ int main(int argc, const char **targv) {
         return tshape;
       });
 
-  const auto &rawshape = shapes[0];
-  const auto &det_shape = shapes[1];
-  const auto &cls_shape = shapes[2];
+  const auto& rawshape = shapes[0];
+  const auto& det_shape = shapes[1];
+  const auto& cls_shape = shapes[2];
   auto readimg =
-      [](const std::string &p,
-         const std::array<int, 3> &shape) -> std::unique_ptr<Mat<uint8_t>> {
+      [](const std::string& p,
+         const std::array<int, 3>& shape) -> std::unique_ptr<Mat<uint8_t>> {
     auto raw = std::make_unique<Mat<uint8_t>>(shape);
     std::ifstream rawfile(p, std::ios_base::in | std::ios_base::binary);
     if (rawfile.is_open()) {
-      rawfile.read(reinterpret_cast<char *>(raw->ptr(0)), raw->size());
+      rawfile.read(reinterpret_cast<char*>(raw->ptr(0)), raw->size());
       rawfile.close();
     }
     return raw;
   };
 
   auto resizeraw =
-      [](const Mat<uint8_t> &raw,
-         const std::vector<std::function<float(uint8_t)>> &preprocess,
-         const std::array<int, 3> &outshape) -> std::unique_ptr<Mat<float>> {
+      [](const Mat<uint8_t>& raw,
+         const std::vector<std::function<float(uint8_t)>>& preprocess,
+         const std::array<int, 3>& outshape) -> std::unique_ptr<Mat<float>> {
     assert(outshape[0] == raw.shape[0] && outshape[0] > 0 && outshape[1] > 0 &&
            outshape[2] > 0 && "resize output shape not valid");
     int stridein = raw.shape[1] * raw.shape[2];
@@ -354,8 +353,8 @@ int main(int argc, const char **targv) {
     return resizedmat;
   };
 
-  auto crop = [](const Mat<uint8_t> &raw,
-                 const Box &box) -> std::unique_ptr<Mat<uint8_t>> {
+  auto crop = [](const Mat<uint8_t>& raw,
+                 const Box& box) -> std::unique_ptr<Mat<uint8_t>> {
     int x0 = std::min(std::max(0, static_cast<int>(box[0])), raw.shape[2] - 1);
     int y0 = std::min(std::max(0, static_cast<int>(box[1])), raw.shape[1] - 1);
     int x1 = std::min(std::max(0, static_cast<int>(box[2])), raw.shape[2] - 1);
@@ -367,8 +366,8 @@ int main(int argc, const char **targv) {
     int strideout = outshape[1] * outshape[2];
 
     for (int i = 0; i < raw.shape[0]; i++) {
-      const uint8_t *ip = raw.ptr(i * stridein);
-      uint8_t *op = cropedmat->ptr(i * strideout);
+      const uint8_t* ip = raw.ptr(i * stridein);
+      uint8_t* op = cropedmat->ptr(i * strideout);
       for (int h = y0; h < y1; h++)
         for (int w = x0; w < x1; w++) {
           op[outshape[2] * (h - y0) + (w - x0)] = ip[raw.shape[2] * h + w];
@@ -377,55 +376,57 @@ int main(int argc, const char **targv) {
     return cropedmat;
   };
 
-  auto det_inputpreprocess = [](uint8_t a) -> float { return a / 255.0; };
+  auto det_inputpreprocess = [](uint8_t a) -> float {
+    return a / 255.0;
+  };
   //[0.485, 0.456, 0.406], [0.229, 0.224, 0.225]
   auto cls_inputpreprocess_t = [](float mean, float std, uint8_t a) -> float {
     return (a / 255.0 - mean) / std;
   };
   const std::vector<std::function<float(uint8_t)>>
       cls_inputpreprocess_channels = {
-          [cls_inputpreprocess_t](auto &&PH1) {
+          [cls_inputpreprocess_t](auto&& PH1) {
             return cls_inputpreprocess_t(0.485, 0.229,
                                          std::forward<decltype(PH1)>(PH1));
           },
-          [cls_inputpreprocess_t](auto &&PH1) {
+          [cls_inputpreprocess_t](auto&& PH1) {
             return cls_inputpreprocess_t(0.456, 0.224,
                                          std::forward<decltype(PH1)>(PH1));
           },
-          [cls_inputpreprocess_t](auto &&PH1) {
+          [cls_inputpreprocess_t](auto&& PH1) {
             return cls_inputpreprocess_t(0.406, 0.225,
                                          std::forward<decltype(PH1)>(PH1));
           },
 
       };
 
-  auto createngine = [](const std::string &modelpath,
-                        const std::string &inputnames,
-                        const std::string &inputshapes) {
+  auto createngine = [](const std::string& modelpath,
+                        const std::string& inputnames,
+                        const std::string& inputshapes) {
     std::string execpath =
-        modelpath.substr(0, modelpath.find_last_of('.')) + ".exec";
-    TopsInference::IParser *parser =
+        modelpath.substr(0, modelpath.find_last_of('.')) + ".engine";
+    TopsInference::IParser* parser =
         TopsInference::create_parser(TopsInference::TIF_ONNX);
-    TopsInference::IOptimizer *optimizer = TopsInference::create_optimizer();
+    TopsInference::IOptimizer* optimizer = TopsInference::create_optimizer();
     parser->setInputNames(inputnames.c_str());
     parser->setInputShapes(inputshapes.c_str());
-    TopsInference::INetwork *network = parser->readModel(modelpath.c_str());
-    TopsInference::IOptimizerConfig *optimizer_config = optimizer->getConfig();
+    TopsInference::INetwork* network = parser->readModel(modelpath.c_str());
+    TopsInference::IOptimizerConfig* optimizer_config = optimizer->getConfig();
     optimizer_config->setBuildFlag(
         TopsInference::BuildFlag::TIF_KTYPE_MIX_FP16);
-    auto *engine = optimizer->build(network);
+    auto* engine = optimizer->build(network);
     engine->saveExecutable(execpath.c_str());
     std::cout << "[INFO] save engine file: " << execpath << '\n';
     TopsInference::release_parser(parser);
     TopsInference::release_optimizer(optimizer);
     TopsInference::release_engine(engine);
   };
-  auto loadengine = [](const std::string &execpath, const uint32_t batchsize,
+  auto loadengine = [](const std::string& execpath, const uint32_t batchsize,
                        const uint32_t nstream)
       -> std::tuple<
-          TopsInference::IEngine *,
+          TopsInference::IEngine*,
           std::vector<std::vector<std::unique_ptr<std::vector<float>>>>> {
-    TopsInference::IEngine *engine = nullptr;
+    TopsInference::IEngine* engine = nullptr;
     engine = TopsInference::create_engine();
     engine->loadExecutable(execpath.c_str());
     std::cout << "[INFO] load engine file: " << execpath << '\n';
@@ -433,7 +434,7 @@ int main(int argc, const char **targv) {
     std::vector<std::vector<std::unique_ptr<std::vector<float>>>>
         stream_putputs;
     stream_putputs.resize(nstream);
-    for (auto &outputs : stream_putputs) {
+    for (auto& outputs : stream_putputs) {
       outputs.reserve(engine->getOutputNum());
       for (int i = 0; i < engine->getOutputNum(); i++) {
         auto outputs_shape_info = engine->getOutputShape(i);
@@ -500,11 +501,11 @@ int main(int argc, const char **targv) {
     for (uint32_t i = 0; i < det_vg; i++) {
       clusterids.push_back(i);
     }
-    auto *handle =
+    auto* handle =
         TopsInference::set_device(0, clusterids.data(), clusterids.size());
     assert(handle != nullptr && "[ERROR] set device failed!\n");
     std::string execpath =
-        det_modelpath.substr(0, det_modelpath.find_last_of('.')) + ".exec";
+        det_modelpath.substr(0, det_modelpath.find_last_of('.')) + ".engine";
     {
       std::lock_guard<std::mutex> lock(creating_model);
       if (!fcheck(execpath)) {
@@ -512,9 +513,9 @@ int main(int argc, const char **targv) {
       }
     }
 
-    const auto &loaded = loadengine(execpath, det_buffersize, det_nstream);
-    const auto &engine = std::get<0>(loaded);
-    const auto &output_hostdata = std::get<1>(loaded);
+    const auto& loaded = loadengine(execpath, det_buffersize, det_nstream);
+    const auto& engine = std::get<0>(loaded);
+    const auto& output_hostdata = std::get<1>(loaded);
 
     assert(engine->getOutputNum() > 0 && "number of outputs not valid!");
     auto parsedshape = engine->getOutputShape(0);
@@ -534,21 +535,29 @@ int main(int argc, const char **targv) {
 
     std::vector<std::vector<float>> input_hostdata(det_nstream);
 
-    for (auto &e : input_hostdata) {
+    for (auto& e : input_hostdata) {
       e.resize(det_shape[0] * det_shape[1] * det_shape[2] * det_buffersize);
     }
 
-    // warmup
+    //warmup
     {
-      void *inputs[] = {input_hostdata[0].data()};
-      std::vector<void *> outputs;
+      void* inputs[] = {input_hostdata[0].data()};
+      std::vector<void*> outputs;
       outputs.reserve((output_hostdata[0].size()));
-      for (const auto &p : output_hostdata[0]) {
+      for (const auto& p : output_hostdata[0]) {
         outputs.emplace_back(p->data());
       }
-      engine->run_with_batch(
-          det_buffersize, inputs, outputs.data(),
-          TopsInference::BufferType::TIF_ENGINE_RSC_IN_HOST_OUT_HOST);
+
+      //! inference with runWithBatch
+      // engine->runWithBatch(
+      //     det_buffersize, inputs, outputs.data(),
+      //     TopsInference::BufferType::TIF_ENGINE_RSC_IN_HOST_OUT_HOST);
+
+      //! inference with runV2
+      auto input_tensor_list = get_input_tensor_list(engine, (float **)inputs, det_buffersize);
+      auto output_tensor_list = get_output_tensor_list(engine, outputs.data(), det_buffersize);
+      auto ret = engine->runV2(input_tensor_list.data(), output_tensor_list.data());
+      ENFLAEM_TIF_CHECK(ret);
     }
 
     while (!det_inputchannel.closed()) {
@@ -561,26 +570,35 @@ int main(int argc, const char **targv) {
         std::vector<std::vector<uint32_t>> real_batchsizes;
         uint32_t idx = 0;
         if (inputdata.size() < det_nstream) {
-          // run only in stream-0
+          //run only in stream-0
           real_batchsizes.resize(1);
           real_batchsizes[0].reserve(inputdata.size());
           uint64_t offset = 0;
-          for (const auto &p : inputdata) {
-            memcpy(static_cast<float *>(input_hostdata[0].data()) + offset,
+          for (const auto& p : inputdata) {
+            memcpy(static_cast<float*>(input_hostdata[0].data()) + offset,
                    p->ptr(0), p->size() * sizeof(float));
             offset += p->size();
             real_batchsizes[0].emplace_back(idx++);
           }
-          void *inputs[] = {input_hostdata[0].data()};
+          void* inputs[] = {input_hostdata[0].data()};
 
-          std::vector<void *> outputs;
+          std::vector<void*> outputs;
           outputs.reserve((output_hostdata[0].size()));
-          for (const auto &p : output_hostdata[0]) {
+          for (const auto& p : output_hostdata[0]) {
             outputs.emplace_back(p->data());
           }
-          engine->run_with_batch(
-              inputdata.size(), inputs, outputs.data(),
-              TopsInference::BufferType::TIF_ENGINE_RSC_IN_HOST_OUT_HOST);
+
+          //! inference with runWithBatch
+          // engine->runWithBatch(
+          //     inputdata.size(), inputs, outputs.data(),
+          //     TopsInference::BufferType::TIF_ENGINE_RSC_IN_HOST_OUT_HOST);
+
+          //! inference with runV2
+          auto input_tensor_list = get_input_tensor_list(engine, (float **)inputs, inputdata.size());
+          auto output_tensor_list = get_output_tensor_list(engine, outputs.data(), inputdata.size());
+          auto ret = engine->runV2(input_tensor_list.data(), output_tensor_list.data());
+          ENFLAEM_TIF_CHECK(ret);
+          
         } else {
 
           auto stride = static_cast<int>(
@@ -598,9 +616,9 @@ int main(int argc, const char **targv) {
                 uint32_t sample_size = 0;
                 EASY_BLOCK("det copy input data");
                 for (auto p = b; p != e; p++) {
-                  memcpy(static_cast<float *>(input_hostdata[nc].data()) +
-                             offset,
-                         (*p)->ptr(0), (*p)->size() * sizeof(float));
+                  memcpy(
+                      static_cast<float*>(input_hostdata[nc].data()) + offset,
+                      (*p)->ptr(0), (*p)->size() * sizeof(float));
                   offset += (*p)->size();
                   sample_size += 1;
                   binfo.push_back(idx);
@@ -609,48 +627,56 @@ int main(int argc, const char **targv) {
                 EASY_END_BLOCK;
 
                 real_batchsizes.push_back(binfo);
-                void *inputs[] = {input_hostdata[nc].data()};
+                void* inputs[] = {input_hostdata[nc].data()};
 
-                std::vector<void *> outputs;
+                std::vector<void*> outputs;
                 outputs.reserve((output_hostdata[nc].size()));
-                for (const auto &p : output_hostdata[nc]) {
+                for (const auto& p : output_hostdata[nc]) {
                   outputs.emplace_back(p->data());
                 }
 
-                EASY_BLOCK("det run_with_batch stream");
+                EASY_BLOCK("det runWithBatch stream");
                 assert((sample_size <= det_buffersize) &&
                        "sample size note valid");
-                engine->run_with_batch(
-                    sample_size, inputs, outputs.data(),
-                    TopsInference::BufferType::TIF_ENGINE_RSC_IN_HOST_OUT_HOST,
-                    streams[nc]);
+                
+                //! inference with runWithBatch
+                // engine->runWithBatch(
+                //     sample_size, inputs, outputs.data(),
+                //     TopsInference::BufferType::TIF_ENGINE_RSC_IN_HOST_OUT_HOST,
+                //     streams[nc]);
+                
+                //! inference with runV2
+                auto input_tensor_list = get_input_tensor_list(engine, (float **)inputs, sample_size);
+                auto output_tensor_list = get_output_tensor_list(engine, outputs.data(), sample_size);
+                auto ret = engine->runV2(input_tensor_list.data(), output_tensor_list.data(), streams[nc]);
+                ENFLAEM_TIF_CHECK(ret);
                 EASY_END_BLOCK;
               });
 
           assert(used_nstream == det_nstream &&
                  "\033[1;31m[ERROR] used_nstream number not valid!\033[0m\n");
 
-          // sync the streams
+          //sync the streams
           EASY_BLOCK("sync det streams");
           for (int i = 0; i < det_nstream; i++) {
             TopsInference::synchronize_stream(streams[i]);
           }
           EASY_END_BLOCK;
         }
-        // post process
+        //post process
         EASY_BLOCK("det post process");
         std::vector<std::unique_ptr<Boxes>> detresults;
         detresults.reserve(inputdata.size());
         assert(output_hostdata.size() == real_batchsizes.size() &&
                "size not valid!");
         for (int i = 0; i < output_hostdata.size(); i++) {
-          const auto &outputs = output_hostdata[i];
-          const auto &binfo = real_batchsizes[i];
+          const auto& outputs = output_hostdata[i];
+          const auto& binfo = real_batchsizes[i];
 
           assert(k_proposal_count * k_step * det_buffersize >=
                      outputs[0]->size() &&
                  "size not valid!");
-          auto *ptr = outputs[0]->data();
+          auto* ptr = outputs[0]->data();
           uint64_t offset = 0;
           for (int i = 0; i < binfo.size(); i++) {
             auto r = yolov5_postprocess(ptr + offset, rawshape, det_shape);
@@ -674,7 +700,7 @@ int main(int argc, const char **targv) {
       }
     }
 
-    // close channel
+    //close channel
     cls_preprocesschannel.close();
 
     for (int i = 0; i < det_nstream; i++) {
@@ -704,7 +730,7 @@ int main(int argc, const char **targv) {
              "[ERROR] raws and boxes size not equal!\n");
       for (uint32_t i = 0; i < raws.size(); i++) {
         EASY_BLOCK("cls input image resize etc.");
-        for (const auto &box : *boxes[i]) {
+        for (const auto& box : *boxes[i]) {
           auto cls_img = resizeraw(*crop(*(raws[i]), box),
                                    cls_inputpreprocess_channels, cls_shape);
           clsinputs.push_back(ClsData{std::move(cls_img), box, globalidx});
@@ -718,7 +744,7 @@ int main(int argc, const char **targv) {
   };
 
   using ClsResult = struct ClsResult {
-    ClsResult(const Box &a, int b, uint32_t c) : bb(a), cls(b), imgidx(c) {}
+    ClsResult(const Box& a, int b, uint32_t c) : bb(a), cls(b), imgidx(c) {}
     Box bb;
     int cls;
     uint32_t imgidx;
@@ -736,11 +762,11 @@ int main(int argc, const char **targv) {
     for (uint32_t i = det_vg; i < det_vg + cls_vg; i++) {
       clusterids.push_back(i);
     }
-    auto *handle =
+    auto* handle =
         TopsInference::set_device(0, clusterids.data(), clusterids.size());
     assert(handle != nullptr && "[ERROR] set device failed!\n");
     std::string execpath =
-        cls_modelpath.substr(0, cls_modelpath.find_last_of('.')) + ".exec";
+        cls_modelpath.substr(0, cls_modelpath.find_last_of('.')) + ".engine";
     {
       std::lock_guard<std::mutex> lock(creating_model);
       if (!fcheck(execpath)) {
@@ -748,9 +774,9 @@ int main(int argc, const char **targv) {
       }
     }
     uint32_t datasize = cls_buffersize;
-    const auto &loaded = loadengine(execpath, datasize, cls_nstream);
-    const auto &engine = std::get<0>(loaded);
-    const auto &output_hostdata = std::get<1>(loaded);
+    const auto& loaded = loadengine(execpath, datasize, cls_nstream);
+    const auto& engine = std::get<0>(loaded);
+    const auto& output_hostdata = std::get<1>(loaded);
 
     assert(engine->getOutputNum() > 0 && "number of outputs not valid!");
     auto parsedshape = engine->getOutputShape(0);
@@ -758,7 +784,7 @@ int main(int argc, const char **targv) {
     k_kn_classes = parsedshape.dimension[1];
 
     std::vector<std::vector<float>> input_hostdata(cls_nstream);
-    for (auto &e : input_hostdata) {
+    for (auto& e : input_hostdata) {
       e.resize(cls_shape[0] * cls_shape[1] * cls_shape[2] * cls_buffersize);
     }
 
@@ -773,17 +799,25 @@ int main(int argc, const char **targv) {
       streams.emplace(streams.begin() + i, s);
     }
 
-    // warmup
+    //warmup
     {
-      void *inputs[] = {input_hostdata[0].data()};
-      std::vector<void *> outputs;
+      void* inputs[] = {input_hostdata[0].data()};
+      std::vector<void*> outputs;
       outputs.reserve((output_hostdata[0].size()));
-      for (const auto &p : output_hostdata[0]) {
+      for (const auto& p : output_hostdata[0]) {
         outputs.emplace_back(p->data());
       }
-      engine->run_with_batch(
-          cls_buffersize, inputs, outputs.data(),
-          TopsInference::BufferType::TIF_ENGINE_RSC_IN_HOST_OUT_HOST);
+      
+      //! inference with runWithBatch
+      // engine->runWithBatch(
+      //     cls_buffersize, inputs, outputs.data(),
+      //     TopsInference::BufferType::TIF_ENGINE_RSC_IN_HOST_OUT_HOST);
+
+      //! inference with runV2
+      auto input_tensor_list = get_input_tensor_list(engine, (float **)inputs, cls_buffersize);
+      auto output_tensor_list = get_output_tensor_list(engine, outputs.data(), cls_buffersize);
+      auto ret = engine->runV2(input_tensor_list.data(), output_tensor_list.data());
+      ENFLAEM_TIF_CHECK(ret);
     }
 
     while (!cls_runchannel.closed()) {
@@ -796,24 +830,32 @@ int main(int argc, const char **targv) {
         if (inputelements.size() < cls_nstream) {
           real_batchsizes.resize(1);
           real_batchsizes[0].reserve(inputelements.size());
-          // run only in stream-0
+          //run only in stream-0
           uint64_t offset = 0;
 
-          for (const auto &inputhost : inputelements) {
+          for (const auto& inputhost : inputelements) {
             memcpy(input_hostdata[0].data() + offset, inputhost.data->ptr(0),
                    inputhost.data->size() * sizeof(float));
             offset += inputhost.data->size();
             real_batchsizes[0].emplace_back(inputhost.bb, 0, inputhost.imgidx);
           }
-          void *inputs[] = {input_hostdata[0].data()};
-          std::vector<void *> outputs;
+          void* inputs[] = {input_hostdata[0].data()};
+          std::vector<void*> outputs;
           outputs.reserve((output_hostdata[0].size()));
-          for (const auto &p : output_hostdata[0]) {
+          for (const auto& p : output_hostdata[0]) {
             outputs.emplace_back(p->data());
           }
-          engine->run_with_batch(
-              inputelements.size(), inputs, outputs.data(),
-              TopsInference::BufferType::TIF_ENGINE_RSC_IN_HOST_OUT_HOST);
+
+          //! inference with runWithBatch
+          // engine->runWithBatch(
+          //     inputelements.size(), inputs, outputs.data(),
+          //     TopsInference::BufferType::TIF_ENGINE_RSC_IN_HOST_OUT_HOST);
+          
+          //! inference with runV2
+          auto input_tensor_list = get_input_tensor_list(engine, (float **)inputs, inputelements.size());
+          auto output_tensor_list = get_output_tensor_list(engine, outputs.data(), inputelements.size());
+          auto ret = engine->runV2(input_tensor_list.data(), output_tensor_list.data());
+          ENFLAEM_TIF_CHECK(ret);
 
         } else {
           auto stride = static_cast<int>(
@@ -833,9 +875,9 @@ int main(int argc, const char **targv) {
                 rs.reserve(std::distance(b, e));
                 EASY_BLOCK("cls memcpy input data");
                 for (auto p = b; p != e; p++) {
-                  memcpy(static_cast<float *>(input_hostdata[nc].data()) +
-                             offset,
-                         (*p).data->ptr(0), (*p).data->size() * sizeof(float));
+                  memcpy(
+                      static_cast<float*>(input_hostdata[nc].data()) + offset,
+                      (*p).data->ptr(0), (*p).data->size() * sizeof(float));
                   offset += (*p).data->size();
                   sample_size += 1;
                   rs.emplace_back(std::move(p->bb), 0, p->imgidx);
@@ -843,48 +885,56 @@ int main(int argc, const char **targv) {
                 EASY_END_BLOCK;
                 real_batchsizes.push_back(rs);
 
-                void *inputs[] = {input_hostdata[nc].data()};
+                void* inputs[] = {input_hostdata[nc].data()};
 
-                std::vector<void *> outputs;
+                std::vector<void*> outputs;
                 outputs.reserve((output_hostdata[nc].size()));
-                for (const auto &p : output_hostdata[nc]) {
+                for (const auto& p : output_hostdata[nc]) {
                   outputs.emplace_back(p->data());
                 }
 
-                EASY_BLOCK("cls run_with_batch stream");
+                EASY_BLOCK("cls runWithBatch stream");
                 assert((sample_size <= cls_buffersize) &&
                        "sample size note valid");
-                engine->run_with_batch(
-                    sample_size, inputs, outputs.data(),
-                    TopsInference::BufferType::TIF_ENGINE_RSC_IN_HOST_OUT_HOST,
-                    streams[nc]);
+
+                //! inference with runWithBatch
+                // engine->runWithBatch(
+                //     sample_size, inputs, outputs.data(),
+                //     TopsInference::BufferType::TIF_ENGINE_RSC_IN_HOST_OUT_HOST,
+                //     streams[nc]);
+
+                //! inference with runV2
+                auto input_tensor_list = get_input_tensor_list(engine, (float **)inputs, sample_size);
+                auto output_tensor_list = get_output_tensor_list(engine, outputs.data(), sample_size);
+                auto ret = engine->runV2(input_tensor_list.data(), output_tensor_list.data(), streams[nc]);
+                ENFLAEM_TIF_CHECK(ret);
                 EASY_END_BLOCK;
               });
           assert(used_nstream == cls_nstream &&
                  "[ERROR] used_nstream number not valid!\n");
 
-          // sync the streams
+          //sync the streams
           EASY_BLOCK("cls sync the streams");
           for (int i = 0; i < cls_nstream; i++) {
             TopsInference::synchronize_stream(streams[i]);
           }
           EASY_END_BLOCK;
         }
-        // post process
+        //post process
         EASY_BLOCK("cls post process");
         size_t ninstance = 0;
-        for (const auto &l : real_batchsizes) {
+        for (const auto& l : real_batchsizes) {
           ninstance += l.size();
         }
         decltype(done_channel)::type clsresults;
         clsresults.reserve(ninstance);
         for (int i = 0; i < real_batchsizes.size(); i++) {
-          auto *p = output_hostdata[i][0]->data();
+          auto* p = output_hostdata[i][0]->data();
           assert(output_hostdata[i][0]->size() >
                      real_batchsizes[i].size() * k_kn_classes &&
                  "[ERROR] size not valid!\n");
           uint64_t offset = 0;
-          for (const auto &rs : real_batchsizes[i]) {
+          for (const auto& rs : real_batchsizes[i]) {
             int cls_maxidx = -1;
             float cls_maxvalue = 0.F;
             for (int j = 0; j < k_kn_classes; j++) {
@@ -923,7 +973,7 @@ int main(int argc, const char **targv) {
         start = true;
       }
       auto result = done_channel.receive();
-      for (const auto &r : result) {
+      for (const auto& r : result) {
         std::cout << ">>>>>>>>>img: " << r.imgidx << "   box : [" << r.bb[0]
                   << ", " << r.bb[1] << ", " << r.bb[2] << ", " << r.bb[3]
                   << ", " << r.bb[4] << ", " << r.bb[5] << "], " << r.cls
@@ -937,7 +987,7 @@ int main(int argc, const char **targv) {
 
   TopsInference::topsInference_init();
 
-  // let each threads begin to run
+  //let each threads begin to run
   auto future_det_preprocess = std::async(std::launch::async, det_preprocess);
   auto future_det_runmodel = std::async(std::launch::async, det_runmodel);
   auto future_cls_preprocess = std::async(std::launch::async, cls_preprocess);
