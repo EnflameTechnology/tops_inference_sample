@@ -1,0 +1,35 @@
+cmake_minimum_required(VERSION 3.0 FATAL_ERROR)
+project(sampleE2E)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+option(DEBUG "open debug mode" FALSE)
+if (DEBUG)
+    add_definitions(-DDEBUG)
+    set(CMAKE_BUILD_TYPE Debug)
+    set(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -O0 -Wall -g -pg -fpermissive")
+endif()
+
+file(GLOB DECODER_FILE ${PROJECT_SOURCE_DIR}/decoder/*)
+file(GLOB MULTITHREADS_FILE ${PROJECT_SOURCE_DIR}/multi_threads/*)
+file(GLOB NN_FILE ${PROJECT_SOURCE_DIR}/nn/*)
+file(GLOB CV_FILE ${PROJECT_SOURCE_DIR}/cv/*)
+file(GLOB POOL_FILE ${PROJECT_SOURCE_DIR}/pool/*)
+file(GLOB QUEUE_FILE ${PROJECT_SOURCE_DIR}/queue/*)
+file(GLOB UTILS_FILE ${PROJECT_SOURCE_DIR}/utils/*)
+
+add_executable(${PROJECT_NAME} ${DECODER_FILE} ${MULTITHREADS_FILE} ${NN_FILE} ${CV_FILE} ${POOL_FILE} ${QUEUE_FILE} ${UTILS_FILE} sample_E2E.cpp)
+
+target_include_directories(${PROJECT_NAME} PUBLIC /include/)
+target_include_directories(${PROJECT_NAME} PUBLIC /opt/tops/include/)
+target_include_directories(${PROJECT_NAME} PUBLIC ${PROJECT_SOURCE_DIR})
+
+target_link_directories(${PROJECT_NAME} PUBLIC /opt/tops/lib)
+target_link_libraries(${PROJECT_NAME} pthread)
+target_link_libraries(${PROJECT_NAME} topsrt topspti_rt topstx)
+target_link_libraries(${PROJECT_NAME} avcodec avdevice avfilter avformat avutil swresample swscale)
+target_link_libraries(${PROJECT_NAME} topscv)
+target_link_libraries(${PROJECT_NAME} TopsInference)
+target_link_libraries(${PROJECT_NAME} jpeg png)
+target_link_libraries(${PROJECT_NAME} topscodec)

@@ -1,19 +1,12 @@
-/*=======================================================================
- * Copyright 2020-2023 Enflame. All Rights Reserved.
- *
- *Licensed under the Apache License, Version 2.0 (the "License");
- *you may not use this file except in compliance with the License.
- *You may obtain a copy of the License at
- *
- *http://www.apache.org/licenses/LICENSE-2.0
- *
- *Unless required by applicable law or agreed to in writing, software
- *distributed under the License is distributed on an "AS IS" BASIS,
- *WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *See the License for the specific language governing permissions and
- *limitations under the License.
- *=======================================================================
- */
+/*
+Copyright 2022 Enflame. All Rights Reserved.
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
 
 #include <unistd.h>
 
@@ -28,9 +21,18 @@
 #include <iostream>
 #include <map>
 #include <vector>
+#include <signal.h>
 
 #include "../utils/tops_utils.h"
 #include "TopsInference/TopsInferRuntime.h"
+
+#define ENFLAEM_TIF_CHECK(_expr) \
+    do {                                                                         \
+        if (TopsInference::TIFStatus::TIF_SUCCESS != _expr) {                                   \
+            fprintf(stderr, "EnFlame TopsInference ERROR : %d @ %s:%d\n", _expr, __FILE__, __LINE__);\
+            raise(SIGUSR1);                                                                \
+        }                                                                          \
+    } while (0)
 
 std::map<int, std::string> label_map = {
     {0, "person"},         {1, "bicycle"},       {2, "car"},
@@ -372,7 +374,7 @@ int main(int argc, char **argv) {
     int img_h = 640;
 
     std::string exec_path =
-        engine_name_construct(onnx_path, "../../engines", atoi(input_shapes),
+        engine_name_construct(onnx_path, "../../../engines", atoi(input_shapes),
                               get_precision_str(precision_type));
 
     int card_id = 0;
@@ -444,28 +446,52 @@ int main(int argc, char **argv) {
     ppm_file.close();
 
     // 6. run
+    /*   use runWithBatch to run inference
     std::vector<void *> inputs_list;
     inputs_list.push_back(tensor.data());
 
     // warmup
     for (int i = 0; i < 3; ++i) {
-        auto ret = engine->run_with_batch(
+        auto ret = engine->runWithBatch(
             batch_size, inputs_list.data(), outputs.data(),
             TopsInference::BufferType::TIF_ENGINE_RSC_IN_HOST_OUT_HOST);
+
         if (!ret) {
-            std::cout << "engine run_with_batch failed." << std::endl;
+            std::cout << "engine runWithBatch failed." << std::endl;
             exit(-1);
         }
     }
+    */
+
+    // use runV2 to run inference
+    float *inputs[] = {tensor.data()};
+    auto input_tensor_list = get_input_tensor_list(engine, inputs, batch_size);
+    auto output_tensor_list = get_output_tensor_list(engine, outputs.data(), batch_size);
+
+    TopsInference::topsInferStream_t stream = nullptr;
+    TopsInference::create_stream(&stream);
+
+    // warmup
+    for (int i=0; i<3; i++) {
+        auto ret = engine->runV2(
+            input_tensor_list.data(), output_tensor_list.data(), stream);
+        TopsInference::synchronize_stream(stream);
+        ENFLAEM_TIF_CHECK(ret); 
+    }
 
     std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
-    auto ret = engine->run_with_batch(
-        batch_size, inputs_list.data(), outputs.data(),
-        TopsInference::BufferType::TIF_ENGINE_RSC_IN_HOST_OUT_HOST);
-    if (!ret) {
-        std::cout << "engine run_with_batch failed." << std::endl;
-        exit(-1);
-    }
+
+    // run runWithBatch to run inference
+    // auto ret = engine->runWithBatch(
+    //     batch_size, inputs_list.data(), outputs.data(),
+    //     TopsInference::BufferType::TIF_ENGINE_RSC_IN_HOST_OUT_HOST);
+
+
+    // use runV2 to run inference
+    auto ret = engine->runV2(
+        input_tensor_list.data(), output_tensor_list.data(), stream);
+    TopsInference::synchronize_stream(stream);
+    ENFLAEM_TIF_CHECK(ret);
 
     std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();
     auto time_diff =
@@ -480,7 +506,7 @@ int main(int argc, char **argv) {
 
     size_t datum_num = outputs_shape_info[0].mem_size /
                        outputs_shape_info[0].dtype_size;  // 22500 * 85
-    float *pred_p = static_cast<float *>(outputs[0]);
+    float *pred_p = static_cast<float *>(/*outputs[0]*/ output_tensor_list[0]->getOpaque());
     for (size_t i = 0; i < datum_num; ++i) {
         pred_output.push_back(pred_p[i]);
     }
@@ -504,6 +530,17 @@ int main(int argc, char **argv) {
 
     // 9. free host outputs memory
     free_host_memory(outputs);
+
+    for (auto &t : input_tensor_list) {
+        TopsInference::destroy_tensor(t);
+    }
+
+    for (auto &t : output_tensor_list) {
+        TopsInference::destroy_tensor(t);
+    }
+
+    input_tensor_list.clear();
+    output_tensor_list.clear();
 
     // 10. release
     TopsInference::release_engine(engine);

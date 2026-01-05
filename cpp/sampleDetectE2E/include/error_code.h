@@ -1,0 +1,24 @@
+#ifndef __ERROR_CODE_H__
+#define __ERROR_CODE_H__
+
+namespace e2e_sample {
+
+enum class E2E_Status {
+  SUCCESS = 0,
+  GCU_NOT_FOUND = 1,
+  VIDEO_NOT_FOUND = 2,
+  VIDEO_INFO_ERROR = 3,
+  INVALID_VIDEO = 4,
+  CODEC_UNSUPPORT = 5,
+  UNSUPPORTED_DEVICE_TYPE = 6,
+  CODEC_ALLOC_CONTEXT_FAIL = 7,
+  CODEC_PARM_TO_CONTEXT_FAIL = 8,
+  INVALID_DEV_ID = 9,
+  INVALID_CARD_ID = 10,
+  OPEN_CODEC_FAIL = 11,
+  HW_NULL_CONTEXT = 12,
+};
+
+}
+
+#endif

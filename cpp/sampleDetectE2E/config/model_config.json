@@ -1,0 +1,8 @@
+{
+    "model_path" : "/home/cse/frank.wang/models/yolov5m-v6.0-640-op13-fp32-N.onnx",
+    "engine_load_base" : "/home/cse/frank.wang/models/yolov5m-v6.0-640-op13-fp32-N",
+    "engine_save_base" : "/home/cse/frank.wang/models/yolov5m-v6.0-640-op13-fp32-N",
+    "precision" : "fp16_mix",
+    "input_names" : "images",
+    "input_shapes" : "1,3,640,640"
+}

@@ -1,0 +1,11 @@
+{
+    "videos" : [
+        {
+            "name" : "0",
+            "addr" : "/home/cse/frank.wang/videos/h264_1920x1080_high_norway_30fps.mp4",
+            "frame_extraction_rate" : 5,
+            "reopen" : false,
+            "repeat" : 1
+        }
+    ]
+}
